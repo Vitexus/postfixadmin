@@ -1,3 +1,9 @@
+postfixadmin (3.3.11) UNRELEASED; urgency=medium
+
+  * Autoloader Debianized
+
+ -- vitex <info@vitexsoftware.cz>  Sun, 23 Oct 2022 22:26:05 +0200
+
 postfixadmin (3.3.10) unstable; urgency=medium
 
   * remove unnessesary fix for mysqli instead of mysql
