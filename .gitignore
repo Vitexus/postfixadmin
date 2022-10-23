@@ -13,3 +13,5 @@
 /build
 /tests/postfixadmin.sqlite.*.test
 /phpstorm-docker-dev/
+/nbproject/private/
+/build-stamp
