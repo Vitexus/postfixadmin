@@ -14,14 +14,6 @@ require_once('common.php');
     <link rel="stylesheet" href="css/bootstrap-3.4.1-dist/css/bootstrap.min.css"/>
     <link rel="stylesheet" href="css/bootstrap.css"/>
 
-    <!-- https://www.srihash.org/ -->
-    <script src="jquery-1.12.4.min.js"
-            integrity="sha384-nvAa0+6Qg9clwYCGGPpDQLVpLNn0fRaROjHqs13t4Ggj3Ez50XnGQqc/r8MhnRDZ"
-            crossorigin="anonymous"></script>
-
-    <script src="css/bootstrap-3.4.1-dist/js/moment-with-locales.min.js"></script>
-    <script src="css/bootstrap-3.4.1-dist/js/bootstrap.min.js"></script>
-    <script src="css/bootstrap-3.4.1-dist/js/bootstrap-datetimepicker.min.js"></script>
 </head>
 
 <body>
@@ -81,6 +73,7 @@ if (strlen($configSetupPassword) == 73 && strpos($configSetupPassword, ':') == 3
         if (password_verify(safepost('setup_password', 'invalid'), $configSetupPassword)) {
             $authenticated = true;
         } else {
+            error_log("PostfixAdmin setup login failed (ip_address: {$_SERVER['REMOTE_ADDR']})");
             $errors['setup_login_password'] = "Password verification failed.";
         }
     }
@@ -117,7 +110,7 @@ $tick = ' ✅ ';
                     if ($configSetupDone) {
                         echo $tick . " setup_password configured";
                     } else {
-                        echo $todo . " You need to have a setup_pasword hash configured in a <code>config.local.php</code> file";
+                        echo $todo . " You need to have a setup_password hash configured in a <code>config.local.php</code> file";
                     }
 ?>
                 </li>
@@ -618,11 +611,11 @@ function do_software_environment_check()
     $error_log_file = ini_get('error_log');
 
     if (file_exists($error_log_file) && is_writable($error_log_file)) {
-        $info[] = "PHP Error log (error_log) is - $error_log_file";
+        $info[] = "PHP Error log (check your php.ini for <code>error_log</code>) is - $error_log_file";
     }
 
     if (file_exists($error_log_file) && !is_writeable($error_log_file)) {
-        $warn[] = "PHP Error log (error_log) is - $error_log_file, but is not writeable. Postfixadmin will be unable to log error(s)";
+        $warn[] = "PHP Error log (<code>error_log</code>) is - $error_log_file, but is not writeable. Postfixadmin will be unable to log error(s). <a href='https://www.php.net/manual/en/errorfunc.configuration.php#ini.error-log'>PHP docs on configuring</a>.";
     }
 
 
@@ -658,18 +651,18 @@ function do_software_environment_check()
     }
 
     if (empty($CONF['encrypt'])) {
-        $error[] = 'Password hashing - $CONF["encrypt"] is empty. Please check your config.inc.php / config.local.php file.';
+        $error[] = 'Password hashing - <code>$CONF["encrypt"]</code> is empty. Please check your config.inc.php / config.local.php file.';
     } else {
-        $info[] = 'Password hashing - $CONF["encrypt"] = ' . $CONF['encrypt'];
+        $info[] = 'Password hashing - <code>$CONF["encrypt"] = ' . $CONF['encrypt'] . "</code>";
 
         try {
             $output = pacrypt('foobar');
             if ($output == 'foobar') {
-                $warn[] = "You appear to be using a cleartext \$CONF['encrypt'] setting. This is insecure. You have been warned. Your users deserve better";
+                $warn[] = "You appear to be using a cleartext <code>\$CONF['encrypt']</code> setting. This is insecure. You have been warned. Your users deserve better";
             }
-            $info[] = 'Password hashing - $CONF["encrypt"] - hash generation OK';
+            $info[] = 'Password hashing - <code>$CONF["encrypt"]</code> - hash generation OK';
         } catch (\Exception $e) {
-            $error[] = "Password Hashing - attempted to use configured encrypt backend ({$CONF['encrypt']}) triggered an error: " . $e->getMessage();
+            $error[] = "Password Hashing - attempted to use configured encrypt backend (<code>{$CONF['encrypt']}</code>) triggered an error: " . $e->getMessage();
 
             if (is_writeable($error_log_file)) {
                 $err = "Possibly helpful error_log messages - " . htmlspecialchars(
@@ -689,6 +682,10 @@ function do_software_environment_check()
         }
     }
 
+    if (empty($CONF['admin_email'])) {
+        $warn[] = 'Admin Email - From address missing. Please add specify an admin_email in your config.inc.php or config.local.php e.g. <code>$CONF["admin_email"] = "Support Person &lt;support@yourdomain.com&gt;";</code>';
+    }
+
     $link = null;
     $error_text = null;
 
@@ -697,7 +694,7 @@ function do_software_environment_check()
     try {
         $dsn = db_connection_string();
 
-        $info[] = "Database connection configured OK (using PDO $dsn)";
+        $info[] = "Database connection configured OK (using PDO <code>$dsn</code>)";
         $link = db_connect();
         $info[] = "Database connection - Connected OK";
     } catch (Exception $e) {
@@ -734,7 +731,7 @@ function do_software_environment_check()
     if ($f_imap_open) {
         $info[] = "Optional - PHP IMAP functions - OK";
     } else {
-        $warn[] = "Warning: Optional dependency 'imap' extension missing, without this you may not be able to automate creation of sub-folders for new mailboxes";
+        $warn[] = "Warning: Optional dependency - PHP 'imap' extension missing. Without this you may not be able to automate creation of sub-folders for new mailboxes";
     }
 
 

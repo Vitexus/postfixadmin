@@ -2044,6 +2044,7 @@ function upgrade_1845()
     db_query("alter table $mailbox change name name varchar(255) charset utf8mb4 not null");
 }
 
+
 function upgrade_1846_mysql()
 {
     # See https://github.com/postfixadmin/postfixadmin/issues/327
@@ -2132,11 +2133,16 @@ function upgrade_1846_mysql()
     db_query("ALTER TABLE $domain_admins MODIFY username varchar(255) COLLATE latin1_general_ci NOT NULL");
 }
 
+function upgrade_1847()
+{
+    // no op, function exists in the postfixadmin_3.3 branch doing some collation fixes.
+}
+
 /**
  * Add DKIM tables
  * @return void
  */
-function upgrade_1847_mysql()
+function upgrade_1848_mysql()
 {
     $dkim_key_table = table_by_key('dkim');
     $dkim_signing_table = table_by_key('dkim_signing');
@@ -2176,12 +2182,15 @@ function upgrade_1847_mysql()
  * Add DKIM tables
  * @return void
  */
-function upgrade_1847_pgsql()
+function upgrade_1848_pgsql()
 {
     $dkim_key_table = table_by_key('dkim');
     $dkim_signing_table = table_by_key('dkim_signing');
     $domain_table = table_by_key('domain');
 
+    if (_pgsql_object_exists($dkim_key_table)) {
+        return;
+    }
     db_query_parsed("
         CREATE TABLE {IF_NOT_EXISTS} $dkim_key_table (
         id {AUTOINCREMENT} {PRIMARY},
@@ -2218,7 +2227,7 @@ function upgrade_1847_pgsql()
  * Add DKIM tables
  * @return void
  */
-function upgrade_1847_sqlite()
+function upgrade_1848_sqlite()
 {
     $dkim_key_table = table_by_key('dkim');
     $dkim_signing_table = table_by_key('dkim_signing');
@@ -2250,4 +2259,98 @@ function upgrade_1847_sqlite()
             REFERENCES $dkim_key_table(`id`)
             ON DELETE CASCADE) {COLLATE};
     ");
+}
+
+/**
+ * Add TOTP fields
+ * @return void
+ */
+function upgrade_1849_mysql()
+{
+    _db_add_field('mailbox', 'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'password_expiry');
+    _db_add_field('admin',   'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'vacation_notification');
+
+    $totp_exception_table = table_by_key('totp_exception_address');
+    db_query_parsed("
+        CREATE TABLE {IF_NOT_EXISTS} $totp_exception_table (
+            `id` {AUTOINCREMENT} {PRIMARY},
+            `ip` varchar(46) NOT NULL,
+            `username` varchar(255) DEFAULT NULL,
+            `description` varchar(255) DEFAULT NULL,
+            UNIQUE KEY ip_user (`ip`,`username`)
+        )
+    ");
+
+    $app_password_table = 'mailbox_app_password';
+    db_query_parsed("
+        CREATE TABLE {IF_NOT_EXISTS} $app_password_table (
+            `id` {AUTOINCREMENT} {PRIMARY},
+            `username` varchar(255) DEFAULT NULL,
+            `description` varchar(255) DEFAULT NULL,
+            `password_hash` varchar(255) DEFAULT NULL
+        )
+    ");
+}
+/**
+ * Add TOTP fields
+ * @return void
+ */
+function upgrade_1849_pgsql()
+{
+    _db_add_field('mailbox', 'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'password_expiry');
+    _db_add_field('admin',   'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'vacation_notification');
+
+    if (!_pgsql_object_exists('totp_exception_address')) {
+        db_query_parsed("
+            CREATE TABLE {IF_NOT_EXISTS} totp_exception_address (
+                id {AUTOINCREMENT} {PRIMARY},
+                ip varchar(46) NOT NULL,
+                username varchar(255) DEFAULT NULL,
+                description varchar(255) DEFAULT NULL
+            );
+        ");
+        db_query_parsed("
+            CREATE UNIQUE INDEX ip_user ON totp_exception_address (ip,username)
+        ");
+    }
+    if (!_pgsql_object_exists('mailbox_app_password')) {
+        db_query_parsed("
+            CREATE TABLE {IF_NOT_EXISTS} mailbox_app_password(
+                id {AUTOINCREMENT} {PRIMARY},
+                username varchar(255) DEFAULT NULL,
+                description varchar(255) DEFAULT NULL,
+                password_hash varchar(255) DEFAULT NULL
+            )
+        ");
+    }
+}
+
+function upgrade_1849_sqlite()
+{
+    _db_add_field('mailbox', 'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'password_expiry');
+    _db_add_field('admin',   'totp_secret', "VARCHAR(255) {UTF-8}  DEFAULT NULL", 'vacation_notification');
+    db_query_parsed("
+            CREATE TABLE {IF_NOT_EXISTS} totp_exception_address (
+                id {AUTOINCREMENT},
+                ip varchar(46) NOT NULL,
+                username varchar(255) DEFAULT NULL,
+                description varchar(255) DEFAULT NULL
+            );
+        ");
+    db_query_parsed("
+            CREATE UNIQUE INDEX ip_user ON totp_exception_address (ip,username)
+        ");
+    db_query_parsed("
+            CREATE TABLE {IF_NOT_EXISTS} mailbox_app_password(
+                id {AUTOINCREMENT},
+                username varchar(255) DEFAULT NULL,
+                description varchar(255) DEFAULT NULL,
+                password_hash varchar(255) DEFAULT NULL
+            )
+        ");
+}
+
+function upgrade_1850()
+{
+    _db_add_field('mailbox',  'smtp_active', 'int DEFAULT 1');
 }

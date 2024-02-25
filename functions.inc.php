@@ -17,6 +17,23 @@
 
 $min_db_version = 1844;  # update (at least) before a release with the latest function numbrer in upgrade.php
 
+
+/**
+ * Check if the user already provided a password but not the second factor
+ * @return boolean
+ */
+function authentication_mfa_incomplete()
+{
+    if (isset($_SESSION['sessid'])) {
+        if (isset($_SESSION['sessid']['mfa_complete'])) {
+            if ($_SESSION['sessid']['mfa_complete'] == false) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /**
  * check_session
  *  Action: Check if a session already exists, if not redirect to login.php
@@ -102,14 +119,18 @@ function authentication_require_role($role)
  * @param boolean $is_admin true if the user is an admin, false otherwise
  * @return boolean true on success
  */
-function init_session($username, $is_admin = false)
+function init_session($username, $is_admin = false, $mfa_complete = false)
 {
     $status = session_regenerate_id(true);
     $_SESSION['sessid'] = array();
     $_SESSION['sessid']['roles'] = array();
-    $_SESSION['sessid']['roles'][] = $is_admin ? 'admin' : 'user';
+    if ($mfa_complete) {
+        $_SESSION['sessid']['roles'][] = $is_admin ? 'admin' : 'user';
+        $_SESSION['sessid']['mfa_complete'] = true;
+    } else {
+        $_SESSION['sessid']['mfa_complete'] = false;
+    }
     $_SESSION['sessid']['username'] = $username;
-
     $_SESSION['PFA_token'] = md5(random_bytes(8) . uniqid('pfa', true));
 
     return $status;
@@ -217,7 +238,7 @@ function language_selector()
 
     $current_lang = check_language();
 
-    $selector = '<select name="lang" xml:lang="en" dir="ltr">';
+    $selector = '<select id="lang" name="lang" xml:lang="en" dir="ltr">';
 
     foreach ($supported_languages as $lang => $lang_name) {
         if ($lang == $current_lang) {
@@ -283,11 +304,38 @@ function check_domain($domain)
 }
 
 /**
+ * Checks if a domain is local
+ * @param string $domain
+ * @return string empty if the domain is valid, otherwise string with the errormessage
+ */
+function check_localaliasonly($domain)
+{
+    // If emailcheck_localaliasonly is set to 'YES', disallow aliases to remote servers (but allow aliases on this server)
+    if (Config::bool('emailcheck_localaliasonly')) {
+        // get the domain part of the e-mail
+        list(/*NULL*/, $domain) = explode('@', $domain);
+
+        // get all domains managed on this system by postfixadmin
+        $domains = list_domains();
+
+        // Only allow local domains to be alias destinations
+        if (in_array($domain, $domains)) {
+            return '';
+        } else {
+            // FIXME: Add transaltions
+            return sprintf("You may only make aliases to domains hosted on this server. %s is a remote domain name.", htmlentities($domain));
+        }
+    } else {
+        return '';
+    }
+}
+
+/**
  * Get password expiration value for a domain
  * @param string $domain - a string that may be a domain
  * @return int password expiration value for this domain (DAYS, or zero if not enabled)
  */
-function get_password_expiration_value($domain)
+function get_password_expiration_value(string $domain)
 {
     $table_domain = table_by_key('domain');
     $query = "SELECT password_expiry FROM $table_domain WHERE domain= :domain";
@@ -468,19 +516,19 @@ function pacol($allow_editing, $display_in_form, $display_in_list, $type, $PALAN
     }
 
     return array(
-        'editable'          => $allow_editing,
-        'display_in_form'   => $display_in_form,
-        'display_in_list'   => $display_in_list,
-        'type'              => $type,
-        'label'             => $PALANG_label,   # $PALANG field label
-        'desc'              => $PALANG_desc,    # $PALANG field description
-        'default'           => $default,
-        'options'           => $options,
-        'not_in_db'         => $not_in_db,
-        'dont_write_to_db'  => $dont_write_to_db,
-        'select'            => $select,         # replaces the field name after SELECT
-        'extrafrom'         => $extrafrom,      # added after FROM xy - useful for JOINs etc.
-        'linkto'            => $linkto,         # make the value a link - %s will be replaced with the ID
+        'editable' => $allow_editing,
+        'display_in_form' => $display_in_form,
+        'display_in_list' => $display_in_list,
+        'type' => $type,
+        'label' => $PALANG_label,   # $PALANG field label
+        'desc' => $PALANG_desc,    # $PALANG field description
+        'default' => $default,
+        'options' => $options,
+        'not_in_db' => $not_in_db,
+        'dont_write_to_db' => $dont_write_to_db,
+        'select' => $select,         # replaces the field name after SELECT
+        'extrafrom' => $extrafrom,      # added after FROM xy - useful for JOINs etc.
+        'linkto' => $linkto,         # make the value a link - %s will be replaced with the ID
     );
 }
 
@@ -967,6 +1015,10 @@ function _pacrypt_mysql_encrypt($pw, $pw_db = '')
         $res = db_query_one("SELECT ENCRYPT(:pw, CONCAT('$6$', '$salt')) as result", ['pw' => $pw]);
     }
 
+    if (!is_string($res['result'])) {
+        throw new \InvalidArgumentException("Unexpected DB result");
+    }
+
     return $res['result'];
 }
 
@@ -1279,15 +1331,17 @@ function pacrypt($pw, $pw_db = "")
 
     $mechanism = strtoupper($CONF['encrypt'] ?? 'CRYPT');
 
-    $crypts = ['PHP_CRYPT', 'MD5CRYPT', 'PHP_CRYPT:DES', 'PHP_CRYPT:MD5', 'PHP_CRYPT:SHA256'];
-
-    if (in_array($mechanism, $crypts)) {
-        $mechanism = 'CRYPT';
-    }
 
     if (preg_match('/^PHP_CRYPT:(DES|MD5|BLOWFISH|SHA256|SHA512):?/', $mechanism, $matches)) {
         return _pacrypt_php_crypt($pw, $pw_db);
     }
+
+
+    $crypts = ['PHP_CRYPT', 'MD5CRYPT'];
+    if (in_array($mechanism, $crypts)) {
+        $mechanism = 'CRYPT';
+    }
+
 
     if ($mechanism == 'AUTHLIB') {
         return _pacrypt_authlib($pw, $pw_db);
@@ -1295,7 +1349,7 @@ function pacrypt($pw, $pw_db = "")
 
     if (!empty($pw_db) && preg_match('/^{([0-9a-z-\.]+)}/i', $pw_db, $matches)) {
         $method_in_hash = $matches[1];
-        if ('COURIER:' . strtoupper($method_in_hash) == $mechanism) {
+        if ('DOVECOT:' . strtoupper($method_in_hash) == $mechanism || 'COURIER:' . strtoupper($method_in_hash) == $mechanism) {
             // don't try and be clever.
         } elseif ($mechanism != $method_in_hash) {
             error_log("PostfixAdmin: configured to use $mechanism, but asked to crypt password using {$method_in_hash}; are you migrating algorithm/mechanism or is something wrong?");
@@ -1328,7 +1382,7 @@ function pacrypt($pw, $pw_db = "")
     }
 
     if (preg_match('/^DOVECOT:(.*)$/i', $mechanism, $matches)) {
-        $mechanism = strtoupper($matches[1]);
+        return _pacrypt_dovecot($pw, $pw_db);
     }
 
     if (empty($pw_db)) {
@@ -1558,14 +1612,19 @@ function smtp_mail($to, $from, $data, $password = "", $body = "")
  * Call: smtp_get_admin_email
  * @return string - username/mail address
  */
-function smtp_get_admin_email()
+function smtp_get_admin_email(bool $fallback_to_loggedin_user = true)
 {
     $admin_email = Config::read_string('admin_email');
     if (!empty($admin_email)) {
         return $admin_email;
-    } else {
+    }
+
+    if ($fallback_to_loggedin_user) {
+        /* may do a redirect to login */
         return authentication_get_username();
     }
+    error_log(__FILE__ . " WARNING : Please set a PostfixAdmin admin_email setting in your config.local.php file");
+    return "PasswordReset <noreply@example.com>"; // this isn't good.
 }
 
 /**
@@ -1852,7 +1911,7 @@ function db_sqlite()
  * @param array $values
  * @return array
  */
-function db_query_all($sql, array $values = [])
+function db_query_all(string $sql, array $values = []): array
 {
     $r = db_query($sql, $values);
     return $r['result']->fetchAll(PDO::FETCH_ASSOC);
@@ -1863,10 +1922,17 @@ function db_query_all($sql, array $values = [])
  * @param array $values
  * @return array
  */
-function db_query_one($sql, array $values = [])
+function db_query_one(string $sql, array $values = []): ?array
 {
     $r = db_query($sql, $values);
-    return $r['result']->fetch(PDO::FETCH_ASSOC);
+    $stmt = $r['result'];
+    /* @var PDOStatement $stmt */
+    $ret = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (is_array($ret)) {
+        return $ret;
+    }
+    // no row?
+    return null;
 }
 
 
@@ -1876,7 +1942,7 @@ function db_query_one($sql, array $values = [])
  * @param bool $throw_exceptions
  * @return int number of rows affected by the query
  */
-function db_execute($sql, array $values = [], $throw_exceptions = false)
+function db_execute(string $sql, array $values = [], bool $throw_exceptions = false): int
 {
     $link = db_connect();
 
@@ -1902,7 +1968,7 @@ function db_execute($sql, array $values = [], $throw_exceptions = false)
  * @param bool $ignore_errors - set to true to ignore errors.
  * @return array e.g. ['result' => PDOStatement, 'error' => string ]
  */
-function db_query($sql, array $values = array(), $ignore_errors = false)
+function db_query(string $sql, array $values = array(), bool $ignore_errors = false): array
 {
     $link = db_connect();
     $error_text = '';
@@ -2048,7 +2114,7 @@ function db_update(string $table, string $where_col, string $where_value, array 
  * Call: db_log (string domain, string action, string data)
  * Possible actions are defined in $LANG["pViewlog_action_$action"]
  */
-function db_log($domain, $action, $data)
+function db_log(string $domain, string $action, string $data): bool
 {
     if (!Config::bool('logging')) {
         return true;

@@ -158,8 +158,11 @@ $CONF['database_tables'] = array (
 
 // Site Admin
 // Define the Site Admin's email address below.
-// This will be used to send emails from to create mailboxes and
-// from Send Email / Broadcast message pages.
+// This will be used to send emails from to 
+//  * create mailboxes and
+//  * Send Email / Broadcast message pages and 
+//  * In password reset emails.
+//
 // Leave blank to send email from the logged-in Admin's Email address.
 $CONF['admin_email'] = '';
 
@@ -257,6 +260,13 @@ $CONF['password_validation'] = array(
     /*  support a 'callable' value which if it returns a non-empty string will be assumed to have failed, non-empty string should be a PALANG key */
     // 'length_check'          => function($password) { if (strlen(trim($password)) < 3) { return 'password_too_short'; } },
 );
+
+// Username legal characters
+// New/changed usernames will be checked against this regular expression with javascript
+// during entry, offending characters not displaying.
+// For example:
+// $CONF['username_legal_chars'] = '^[a-zA-Z0-9-_.]+$';
+$CONF['username_legal_chars'] = '';
 
 // Generate Password
 // Generate a random password for a mailbox or admin and display it.
@@ -538,21 +548,29 @@ EOM;
 // address is legal by performing a name server look-up.
 $CONF['emailcheck_resolve_domain']='YES';
 
-//
-//
-// OpenDKIM stuff
-//
-//
+// When creating mailboxes or aliases, check that the domain-part of the
+// address is local and managed by postfixadmin, preventing remote domains
+// from being the destination for an alias
+$CONF['emailcheck_localaliasonly']='NO';
 
+// Use TOTP for logging into Postfixadmin, can be overridden for listed
+// IPs to allow access by software that provide their own checking.
+// Exceptions can be of user, domain or global scope.
+// This also bundles several menu items in a "security" dropdown.
+$CONF['totp'] = 'NO';
+
+// Use revokable application passwords to limit the risk of storing a
+// password in another system. These passwords can not access Postfixadmin.
+$CONF['app_passwords'] = 'NO';
+
+
+// OpenDKIM stuff
 // Enable the dkim database component
 $CONF['dkim'] = 'NO';
-
 // Allow regular admins to add/edit/remove dkim entries
 $CONF['dkim_all_admins'] = 'NO';
-
-//
 // End OpenDKIM stuff
-//
+
 
 // Optional:
 // Analyze alias gotos and display a colored block in the first column
@@ -645,6 +663,34 @@ $CONF['mailbox_postdeletion_script'] = '';
 // STDIN: old password + \0 + new password
 // $CONF['mailbox_postpassword_script']='sudo -u dovecot /usr/local/bin/postfixadmin-mailbox-postpassword.sh';
 $CONF['mailbox_postpassword_script'] = '';
+
+// Optional: See NOTE above.
+// Script to run after setting a mailbox TOTP secret.
+// Parameters: (1) username (2) domain
+// STDIN: TOTP secret + \0
+// $CONF['mailbox_post_TOTP_change_secret_script']='sudo -u dovecot /usr/local/bin/postfixadmin-mailbox-postpassword.sh';
+$CONF['mailbox_post_TOTP_change_secret_script'] = '';
+
+// Optional: See NOTE above.
+// Script to run after adding an exception address (disable TOTP).
+// Parameters: (1) username (2) ip
+// STDIN: TOTP secret + \0
+// $CONF['mailbox_post_exception_add_script']='sudo -u dovecot /usr/local/bin/postfixadmin-mailbox-postpassword.sh';
+$CONF['mailbox_post_totp_exception_add_script'] = '';
+
+// Optional: See NOTE above.
+// Script to run after deleting an exception address (disable TOTP).
+// Parameters: (1) username (2) ip
+// STDIN: TOTP secret + \0
+// $CONF['mailbox_post_totp_exception_delete_script']='sudo -u dovecot /usr/local/bin/postfixadmin-mailbox-postpassword.sh';
+$CONF['mailbox_post_totp_exception_delete_script'] = '';
+
+// Optional: See NOTE above.
+// Script to run after adding an app password.
+// Parameters: (1) username (2) app description
+// STDIN: password + \0
+// $CONF['mailbox_postapppassword_script']='sudo -u dovecot /usr/local/bin/postfixadmin-mailbox-postpassword.sh';
+$CONF['mailbox_postapppassword_script'] = '';
 
 // Optional: See NOTE above.
 // Script to run after creation of domains.
@@ -763,6 +809,17 @@ $CONF['password_expiration'] = 'YES';
 $CONF['site_url'] = null;
 
 $CONF['version'] = '3.4-dev';
+
+// The smtp_active_flag when set to YES enables editing of the smtp_active 
+// field of the mailbox table. The smtp_active field can be used to enable
+// or disable smtp sending for a mailbox separately to other mailbox functions.  
+// This can be useful if you want the ability to stop a user sending email 
+// while still allowing receipt of new mail and reading existing email. 
+// Please refer to DOCUMENTS/DOVECOT.txt for an example of how to configure this.
+// The default is NO for backwards compatibility. Only enable this if you
+// have also set up the SQL queries that make use of the smtp_active field
+// in your Dovecot SQL configuration.
+$CONF['smtp_active_flag'] = 'NO';
 
 // If you want to keep most settings at default values and/or want to ensure
 // that future updates work without problems, you can use a separate config 

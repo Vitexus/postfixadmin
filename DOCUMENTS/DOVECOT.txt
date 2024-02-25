@@ -57,6 +57,15 @@ protocols = "imap pop3"
 # change to 'no' if you don't have ssl cert/keys, and comment out ssl_cert/ssl_key
 ssl = yes 
 
+# If you're using LetsEncrypt/certbot see e.g. /etc/letsencrypt/live/MyDomain/fullchain.pem.
+#
+# cat server.crt server.key > dovecot.pem 
+#
+# Make sure dovecot can read these file(s)
+#
+# If you use doveadm for your PostfixAdmin hashing, the webserver will also need read access to these files 
+# See also : https://github.com/postfixadmin/postfixadmin/blob/master/DOCUMENTS/HASHING.md#dovecotmethod
+
 ssl_cert = </etc/dovecot/private/dovecot.pem
 ssl_key = </etc/dovecot/private/dovecot.pem
 
@@ -138,7 +147,12 @@ iterate_query = SELECT username as user FROM mailbox WHERE active = '1'
 
 #END /etc/dovecot/dovecot-sql.conf
 
+If you make use of the separate smtp_active flag in the mailbox table of postfixadmin by 
+enabling the configuration parameter $CONF['smtp_active_flag'] = YES in postfixadmin configuration
+and you're using dovecot sasl with postfix, the dovecot queries can be updated to use the different flag for smtp:
 
+password_query = SELECT username AS user,password FROM mailbox WHERE username = '%u' AND (('%s' = 'smtp' AND smtp_active = '1') OR ('%s' <> 'smtp' AND active = '1'))
+user_query = SELECT CONCAT('/var/mail/vmail/', maildir) AS home, 1001 AS uid, 1001 AS gid, CONCAT('*:bytes=', quota) AS quota_rule FROM mailbox WHERE username = '%u' AND (('%s' = 'smtp' AND smtp_active = '1') OR ('%s' <> 'smtp' AND active = '1'))
 
 3. Permissions
 --------------
@@ -253,3 +267,13 @@ If you use dovecot 1.2 or newer,
 - use the 'quota2' table (also created by setup.php)
 - set $CONF['new_quota_table'] = 'YES'
 
+5. Dovecot Allowed IPs and App Password support (optional)
+----------------------------------------------------------
+
+To enhance end user security, Postfixadmin supports a set of features that
+need implementation in the Dovecot login SQL queries.
+
+The following features are available:
+
+* Restrict login to a list of allowed remote IP addresses.
+* Allow login with app passwords.

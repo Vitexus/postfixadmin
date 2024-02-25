@@ -76,20 +76,20 @@
                     {if $table == 'foo' && $key == 'bar'}
                         Special handling (td content) for {$table} / {$key}
                     {elseif $table == 'aliasdomain' && $key == 'target_domain' && $struct.target_domain.linkto == 'target'}
-                        <a href="list-virtual.php?domain={$item.target_domain|escape:"url"}">{$item.target_domain}</a>
+                        <a href="list-virtual.php?domain={$item.target_domain|escape:"quotes"}">{$item.target_domain}</a> {* do we need escape:url or escpae:quotes here? see #705 *}
 {*                    {elseif $table == 'domain' && $key == 'domain'}
                         <a href="list.php?table=domain&domain={$item.domain|escape:"url"}">{$item.domain}</a>
 *}
                     {elseif $key == 'active'}
                         {if $item._can_edit}
-                            <a class="btn btn-warning" href="{#url_editactive#}{$table}&amp;id={$RAW_item.$id_field|escape:"url"}&amp;active={if ($item.active==0)}1{else}0{/if}&amp;token={$smarty.session.PFA_token|escape:"url"}">
-				{if $item._active == 'YES'}
-					<span class="glyphicon glyphicon-check" aria-hidden="true"></span>
-				{else}
-					<span class="glyphicon glyphicon-unchecked" aria-hidden="true"></span>
-				{/if}
-				{$item._active}
-			    </a>
+                            <a class="btn btn-{if ($item.active==0)}info{else}warning{/if}" href="{#url_editactive#}{$table}&amp;id={$RAW_item.$id_field|escape:"url"}&amp;active={if ($item.active==0)}1{else}0{/if}&amp;token={$smarty.session.PFA_token|escape:"url"}">
+                            {if $item._active == $PALANG['YES']}
+                                <span class="glyphicon glyphicon-check" aria-hidden="true"></span>
+                            {else}
+                                <span class="glyphicon glyphicon-unchecked" aria-hidden="true"></span>
+                            {/if}
+                            {$item._active}
+                            </a>
                         {else}
                             {$item._active}
                         {/if}

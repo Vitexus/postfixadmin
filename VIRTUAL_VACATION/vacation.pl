@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# Virtual Vacation 4.2
+# Virtual Vacation 4.2.1
 #
 # See Contributions.txt for a list of contributions.
 # https://github.com/postfixadmin/postfixadmin/blob/master/VIRTUAL_VACATION/Contributions.txt
@@ -28,9 +28,11 @@ use Email::Sender::Transport::SMTP;
 use Email::Simple;
 use Email::Simple::Creator;
 use Try::Tiny;
-use Log::Log4perl qw(get_logger :levels);
+use Log::Log4perl qw(get_logger :levels :nowarn);
 use File::Basename;
 use Net::DNS;
+use Time::Piece;
+
 # ========== begin configuration ==========
 
 # IMPORTANT: If you put passwords into this script, then remember
@@ -53,21 +55,21 @@ our $vacation_domain = 'autoreply.example.org';
 
 our $recipient_delimiter = '+';
 
-# smtp server used to send vacation e-mails, leave empty to look up the MX of the sending domain and deliver it directly (might break DKIM signatures, mail archiving etc.)
+# SMTP server used to send vacation e-mails, leave empty to look up the MX of the sending domain and deliver it directly (might break DKIM signatures, mail archiving etc.)
 our $smtp_server = 'localhost';
 # port to connect to; defaults to 25 for non-SSL, 465 for 'ssl', 587 for 'starttls'
 our $smtp_server_port = 25;
 
-# this is the local address from which to connect
+# this is the local address to connect from
 our $smtp_client = 'localhost';
 
 # this is the helo we [the vacation script] use on connection; you may need to change this to your hostname or something,
-# depending upon what smtp helo restrictions you have in place within Postfix.
+# depending upon what SMTP helo restrictions you have in place within Postfix.
 our $smtp_helo = 'localhost.localdomain';
 
 # send mail encrypted or plaintext
-# if 1, connect securely via ssl
-# if 'starttls', connect using starttls (plaintext+neg tls)
+# if 1, connect securely via SSL
+# if 'starttls', connect using starttls (plaintext+neg TLS)
 # if 'maybestarttls' - try starttls, otherwise plaintext.
 # if 0 (default), plain text, no security
 # See also : https://metacpan.org/pod/Email::Sender::Transport::SMTP
@@ -81,6 +83,8 @@ our $smtp_authid = '';
 # sasl_password: the password to use for auth; required if username is provided
 our $smtp_authpwd = '';
 
+
+
 # This specifies the mail 'from' name which is shown to recipients of vacation replies.
 # If you leave it empty, the vacation mail will contain:
 # From: <original@recipient.domain>
@@ -88,8 +92,13 @@ our $smtp_authpwd = '';
 # From: Some Friendly Name <original@recipient.domain>
 our $friendly_from = '';
 
+# If accountname_check is set it will add the account name in front of the email "AccountName <original@recipient.domain>" if the accountname is not a empty string
+# otherwise $friendly_name will be set in front of the email if not empty.
+our $accountname_check = 0;
+our $account_name = '';  # leave this blank it will be filled with 'name' field from table 'mailbox'
+
 # Set to 1 to enable logging to syslog.
-our $syslog = 0;
+our $syslog = 1;
 
 # path to logfile, when empty logging is suppressed
 # change to e.g. /dev/null if you want nothing logged.
@@ -124,6 +133,21 @@ our $noreply_pattern = 'bounce|do-not-reply|facebook|linkedin|list-|myspace|twit
 # our $no_vacation_pattern = 'info\@example\.org';
 our $no_vacation_pattern = 'info\@example\.org';
 
+#
+# The subroutine replace_string replaces in the body text the text defined at $replace_from and $replace_until with the date of activefrom and activeuntil in the format specified at $date_format.
+#
+# Like :
+#
+# %Y/%m/%d  =>  2022/10/01
+# %d-%m-%Y  =>  01-10-2022
+# %d %b %y  =>  01 Oct 2022
+#
+# see for more option
+# https://www.tutorialspoint.com/perl/perl_date_time.htm
+
+our $replace_from  = "<%From_Date>";	 #You can place your own replacement text here for active from
+our $replace_until = "<%Until_Date>";    #You can place your own replacement text here for active until
+our $date_format   = '%Y-%m-%d';
 
 # instead of changing this script, you can put your settings to /etc/mail/postfixadmin/vacation.conf
 # or /etc/postfixadmin/vacation.conf just use Perl syntax there to fill the variables listed above
@@ -138,6 +162,15 @@ if (-f '/etc/mail/postfixadmin/vacation.conf') {
 }
 
 # =========== end configuration ===========
+
+# Try and enable log_to_file if syslog is disabled
+if ($syslog == 0 && $log_to_file == 0 && (
+        (-f $logfile   && -w $logfile)
+        ||
+        (! -f $logfile && -w dirname($logfile)))
+   ) {
+    $log_to_file=1;
+}
 
 if($log_to_file == 1) {
     if (( ! -w $logfile ) && (! -w dirname($logfile))) {
@@ -332,9 +365,67 @@ sub check_for_vacation {
     return $rv;
 }
 
+#
+# Get Accountname stored in name of table mailbox
+#
+sub get_accountname {
+    my ($from_mailbox) =@_;
+    my $logger = get_logger();
 
-# try and determine if email address has vacation turned on; we
-# have to do alias searching, and domain aliasing resolution for this.
+    my $query = qq{SELECT name FROM mailbox WHERE username=? };
+    my $stm = $dbh->prepare($query) or panic_prepare($query);
+    $stm->execute($to) or panic_execute($query,"username='$from_mailbox'");
+    my @row = $stm->fetchrow_array;
+    my $rv = $stm->rows;
+
+    my $accountname = $row[0];
+
+    return $accountname;
+}
+
+#
+# Replace <%From_Date>   with date part of activefrom from the vacation table on base of email
+# Replace <%Until_Date>  with date part of activeuntil from the vacation table on base of email
+#
+# The variable $replace_from and $replace_until will have the <%From_Date> and <%Until_Date> replacement text
+
+sub replace_string {
+    my ($to) =@_;
+    my $logger = get_logger();
+
+    my $query = qq{SELECT body,activefrom,activeuntil FROM vacation WHERE email=? };
+    my $stm = $dbh->prepare($query) or panic_prepare($query);
+    $stm->execute($to) or panic_execute($query,"email='$to'");
+    my @row = $stm->fetchrow_array;
+    my $rv = $stm->rows;
+
+    my $vacation_body = $row[0];
+    my $f_date = $row[1];
+    my $u_date = $row[2];
+#
+# Note !!  do not  replace '%Y-%m-%d' with date_format because this is the format that f_date and u_date are are filled with date in this format
+# $date_format is used to display the dates in your choice of format.
+#
+    my $date_f = Time::Piece->strptime($f_date,'%Y-%m-%d');
+    $f_date = $date_f->strftime($date_format);
+    my $date_u = Time::Piece->strptime($u_date,'%Y-%m-%d');
+    $u_date = $date_u->strftime($date_format);
+
+    $vacation_body = replace_a_string($vacation_body,$replace_from,$f_date);
+    $vacation_body = replace_a_string($vacation_body,$replace_until,$u_date);
+
+    $logger->debug ("From = $f_date  Until = $u_date   ** for Email = $to  Body = $vacation_body ");
+
+    return $vacation_body;
+}
+
+sub replace_a_string {
+    my ( $result,$what_goes_out,$what_goes_in) =@_;
+    $result =~ s/$what_goes_out/$what_goes_in/ig;
+    return $result;
+}
+# try and determine if email address has vacation turned on;
+# we have to do alias searching, and domain aliasing resolution for this.
 # If found, return ($num_matches, $real_email);
 sub find_real_address {
     my ($email) = @_;
@@ -459,6 +550,9 @@ sub send_vacation_email {
         my $body = $row[1];
         $body = Encode::decode_utf8($body) if (!Encode::is_utf8($body));
 
+        ## Replace <%Time> marks in the Body string with dates form the table vacation
+        $body = replace_string ($email);
+
         my $from = $email;
         my $to = $orig_from;
 
@@ -476,6 +570,13 @@ sub send_vacation_email {
                 exit(0);
             }
         }
+
+        # We can't use localhost as the local bind interface if we're trying
+        # to connect to an SMTP server that isn't on localhost, we won't be
+        # able to route to that server.
+        if ($smtp_server ne 'localhost' && $smtp_client eq 'localhost') {
+            $smtp_client = undef;
+        };
 
         my $smtp_params = {
             host => $smtp_server,
@@ -498,13 +599,24 @@ sub send_vacation_email {
 
         my $transport = Email::Sender::Transport::SMTP->new($smtp_params);
 
-        $subject = Encode::encode_utf8($subject) if(Encode::is_utf8($subject));
-        $body = Encode::encode_utf8($body) if(Encode::is_utf8($body));
+# QUESTION !!
+#I think the two lines below (which I have commented out in) are no longer necessary, they appear earlier in the script see line 490 and 498
+#
+# -->   $subject = Encode::encode_utf8($subject) if(Encode::is_utf8($subject));
+# -->   $body = Encode::encode_utf8($body) if(Encode::is_utf8($body));
+#
+        my $email_from = $from ;
+        my $account_name = get_accountname($from);
 
-        my $email_from = $from;
-        if($friendly_from ne '') {
-            $email_from = encode_mimewords($friendly_from, 'Charset', 'UTF-8') . " $from <$from>";
+        if ($friendly_from ne'') {
+            $email_from = encode_mimewords($friendly_from, 'Charset', 'UTF-8') . " <$from>";
         }
+
+        if (($accountname_check ==1) and ($account_name ne '')) {
+            $email_from = encode_mimewords($account_name, 'Charset', 'UTF-8') . " <$from>";
+        }
+
+        $logger->debug("** From = $from  Email_from = $email_from   Friendly_name = $friendly_from  Accountname = $account_name **\n");
 
         $email = Email::Simple->create(
             header => [
@@ -531,7 +643,7 @@ sub send_vacation_email {
             if (@_) {
                 $logger->error("Failed to send vacation response to $to from $from subject $subject: @_");
             } else {
-             $logger->debug("Vacation response sent to $to from $from subject $subject sent\n");
+             $logger->debug("Vacation response sent to $to from $from subject $subject  Email $email_from sent\n");
             }
         }
     }
@@ -575,14 +687,14 @@ sub strip_address {
 sub panic_prepare {
     my ($arg) = @_;
     my $logger = get_logger();
-    $logger->error("Could not prepare sql statement: '$arg'");
+    $logger->error("Could not prepare SQL statement: '$arg'");
     exit(0);
 }
 
 sub panic_execute {
     my ($arg,$param) = @_;
     my $logger = get_logger();
-    $logger->error("Could not execute sql statement - '$arg' with parameters '$param'");
+    $logger->error("Could not execute SQL statement - '$arg' with parameters '$param'");
     exit(0);
 }
 
@@ -606,6 +718,7 @@ sub check_and_clean_from_address {
     #$logger->debug("Address cleaned up to $address");
     return $address;
 }
+
 ########################### main #################################
 
 # Take headers apart
@@ -625,7 +738,7 @@ while (<STDIN>) {
     elsif (/^message\-id:\s*(.*)\s*\n$/i) { $messageid = $1; $lastheader = \$messageid; }
     elsif (/^x\-spam\-(flag|status):\s+yes/i) { $logger->debug("x-spam-$1: yes found; exiting"); exit (0); }
     elsif (/^x\-facebook\-notify:/i) { $logger->debug('Mail from facebook, ignoring'); exit(0); }
-    elsif (/^x\-amazon\-mail\-relay\-type:\s*notification/i) { $logger->debug('Notificatiom mail from Amazon, ignoring'); exit(0); }
+    elsif (/^x\-amazon\-mail\-relay\-type:\s*notification/i) { $logger->debug('Notification mail from Amazon, ignoring'); exit(0); }
     elsif (/^precedence:\s+(bulk|list|junk)/i) { $logger->debug("precedence: $1 found; exiting"); exit (0); }
     elsif (/^x\-loop:\s+postfix\ admin\ virtual\ vacation/i) { $logger->debug('x-loop: postfix admin virtual vacation found; exiting'); exit (0); }
     elsif (/^Auto\-Submitted:\s*no/i) { next; }

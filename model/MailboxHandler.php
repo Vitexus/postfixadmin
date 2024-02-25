@@ -16,6 +16,7 @@ class MailboxHandler extends PFAHandler
     protected function initStruct()
     {
         $passwordReset = (int) ( Config::bool('forgotten_user_password_reset') && !Config::read('mailbox_postpassword_script') );
+        $smtpActiveFlag = (int) ( Config::bool('smtp_active_flag') );
         $reset_by_sms = 0;
         if ($passwordReset && Config::read_string('sms_send_function')) {
             $reset_by_sms = 1;
@@ -30,7 +31,9 @@ class MailboxHandler extends PFAHandler
             # field name                allow       display in...   type    $PALANG label                     $PALANG description                 default / options / ...
             #                           editing?    form    list
             'username'         => pacol($this->new, 1,      1,      'mail', 'pEdit_mailbox_username'        , ''                                , '' ),
-            'local_part'       => pacol($this->new, 0,      0,      'text', 'pEdit_mailbox_username'        , ''                                , '' ),
+            'local_part'       => pacol($this->new, 0,      0,      'text', 'pEdit_mailbox_username'        , ''                                , '',
+                /*options*/ array('legal_chars' => Config::read('username_legal_chars'), 'legal_char_warning' => Config::lang('pLegal_char_warning'))
+            ),
             'domain'           => pacol($this->new, 0,      1,      'enum', ''                              , ''                                , '',
                 /*options*/ $this->allowed_domains      ),
             # TODO: maildir: display in list is needed to include maildir in SQL result (for post_edit hook)
@@ -48,6 +51,7 @@ class MailboxHandler extends PFAHandler
             # read_from_db_postprocess() also sets 'quotabytes' for use in init()
             # TODO: read used quota from quota/quota2 table
             'active'           => pacol(1,          1,      1,      'bool', 'active'                        , ''                                 , 1 ),
+            'smtp_active'      => pacol($smtpActiveFlag, $smtpActiveFlag,0,      'bool', 'smtp_active'                   , ''                                 , 1 ),
             'welcome_mail'     => pacol($this->new, $this->new, 0,  'bool', 'pCreate_mailbox_mail'          , ''                                 , 1,
                 /*options*/ array(),
                 /*not_in_db*/ 1             ),

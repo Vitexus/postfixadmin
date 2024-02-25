@@ -7,7 +7,7 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 
     {* see https://github.com/postfixadmin/postfixadmin/issues/497 *}
-    <meta http-equiv='Content-Security-Policy' content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "/>
+    <meta http-equiv='Content-Security-Policy' content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "/>
 
     <title>Postfix Admin - {$smarty.server.HTTP_HOST}</title>
     <link rel="shortcut icon" href="{$CONF.theme_favicon}"/>
@@ -16,7 +16,8 @@
         <link rel="stylesheet" type="text/css" href="{$CONF.theme_custom_css}"/>
     {/if}
 
-    <script src="{$rel_path}jquery-1.12.4.min.js"></script>
+    <!-- needed for datetimepicker -->
+    <script src="{$rel_path}jquery-3.7.0.min.js"></script>
     <script src="{$rel_path}css/bootstrap-3.4.1-dist/js/moment-with-locales.min.js"></script>
     <script src="{$rel_path}css/bootstrap-3.4.1-dist/js/bootstrap.min.js"></script>
     <script src="{$rel_path}css/bootstrap-3.4.1-dist/js/bootstrap-datetimepicker.min.js"></script>

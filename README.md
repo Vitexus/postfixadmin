@@ -1,5 +1,4 @@
 ![GitHubBuild](https://github.com/postfixadmin/postfixadmin/workflows/GitHubBuild/badge.svg)
-[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/postfixadmin/Lobby)
 [![Coverage Status](https://coveralls.io/repos/github/postfixadmin/postfixadmin/badge.svg?branch=master)](https://coveralls.io/github/postfixadmin/postfixadmin?branch=master)
 ![GitHub repo size](https://img.shields.io/github/repo-size/postfixadmin/postfixadmin)
 [![IRC Chat - #postfixadmin](https://img.shields.io/badge/IRC%20libera-brightgreen.svg)](https://web.libera.chat/#postfixadmin)
@@ -33,6 +32,11 @@ Integrates with :
 
 [Some screenshots of Postfixadmin in action (as admin and user)](DOCUMENTS/screenshots/README.md)
 
+## Releases / Development note
+
+ - While you can install PostfixAdmin from 'git' using the 'master' branch, 'master' is our main development version. It may work. It may contain funky new exciting stuff. It may "eat your data".
+ - If you want an easy life, use a published release - see: https://github.com/postfixadmin/postfixadmin/releases or its branch (e.g. postfixadmin_3.3)
+ - Latest significant changes should be listed in the appropriate CHANGELOG.TXT file.
 
 ## Useful Links
 
